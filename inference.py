@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from core.utils.misc import process_cfg
 from utils import flow_viz
+from utils.frame_utils import writeFlow
 
 from core.Networks import build_network
 
@@ -35,7 +36,7 @@ def prepare_image(seq_dir):
     
     return torch.stack(images)
 
-def vis_pre(flow_pre, vis_dir):
+def vis_and_wf_pre(flow_pre, vis_dir):
 
     if not os.path.exists(vis_dir):
         os.makedirs(vis_dir)
@@ -43,14 +44,16 @@ def vis_pre(flow_pre, vis_dir):
     N = flow_pre.shape[0]
 
     for idx in range(N//2):
-        flow_img = flow_viz.flow_to_image(flow_pre[idx].permute(1, 2, 0).numpy())
-        image = Image.fromarray(flow_img)
-        image.save('{}/flow_{:04}_to_{:04}.png'.format(vis_dir, idx+2, idx+3))
+        writeFlow('{}/flow_{:04}_to_{:04}.flo'.format(vis_dir, idx+2, idx+3), flow_pre[idx].permute(1, 2, 0).numpy())
+        #flow_img = flow_viz.flow_to_image(flow_pre[idx].permute(1, 2, 0).numpy())
+        #image = Image.fromarray(flow_img)
+        #image.save('{}/flow_{:04}_to_{:04}.png'.format(vis_dir, idx+2, idx+3))
     
     for idx in range(N//2, N):
-        flow_img = flow_viz.flow_to_image(flow_pre[idx].permute(1, 2, 0).numpy())
-        image = Image.fromarray(flow_img)
-        image.save('{}/flow_{:04}_to_{:04}.png'.format(vis_dir, idx-N//2+2, idx-N//2+1))
+        writeFlow('{}/flow_{:04}_to_{:04}.png'.format(vis_dir, idx-N//2+2, idx-N//2+1), flow_pre[idx].permute(1, 2, 0).numpy())
+        #flow_img = flow_viz.flow_to_image(flow_pre[idx].permute(1, 2, 0).numpy())
+        #image = Image.fromarray(flow_img)
+        #image.save('{}/flow_{:04}_to_{:04}.png'.format(vis_dir, idx-N//2+2, idx-N//2+1))
 
 @torch.no_grad()
 def MOF_inference(model, cfg):
@@ -58,7 +61,10 @@ def MOF_inference(model, cfg):
     model.eval()
 
     input_images = prepare_image(cfg.seq_dir)
-    input_images = input_images[None].cuda()
+    if torch.cuda.is_available():
+        input_images = input_images[None].cuda()
+    else:
+        input_images = input_images[None].cpu()
     padder = InputPadder(input_images.shape)
     input_images = padder.pad(input_images)
     flow_pre, _ = model(input_images, {})
@@ -72,7 +78,11 @@ def BOF_inference(model, cfg):
     model.eval()
 
     input_images = prepare_image(cfg.seq_dir)
-    input_images = input_images[None].cuda()
+    if torch.cuda.is_available():
+        input_images = input_images[None].cuda()
+    else:
+        input_images = input_images[None].cpu()
+    # input_images = input_images[None].cuda()
     padder = InputPadder(input_images.shape)
     input_images = padder.pad(input_images)
     flow_pre, _ = model(input_images, {})
@@ -98,11 +108,14 @@ if __name__ == '__main__':
 
     cfg = get_cfg()
     cfg.update(vars(args))
+    
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     model = torch.nn.DataParallel(build_network(cfg))
-    model.load_state_dict(torch.load(cfg.model))
+    model.load_state_dict(torch.load(cfg.model, map_location=device))
 
-    model.cuda()
+    if torch.cuda.is_available():
+        model.cuda()
     model.eval()
 
     print(cfg.model)
@@ -116,7 +129,7 @@ if __name__ == '__main__':
             from configs.sintel_submission import get_cfg
             flow_pre = BOF_inference(model.module, cfg)
     
-    vis_pre(flow_pre, cfg.vis_dir)
+    vis_and_wf_pre(flow_pre, cfg.vis_dir)
 
 
 
